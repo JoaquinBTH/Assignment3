@@ -9,6 +9,11 @@ all: test client server
 main.o: main.c
 	$(CC) -Wall -I. -c main.c
 
+client.o: client.c
+	$(CC) -Wall -I. -c client.c
+
+server.o: server.c
+	$(CC) -Wall -I. -c server.c
 
 test: main.o
 	$(CC) -I./ -Wall -lncurses  -o test main.o 
