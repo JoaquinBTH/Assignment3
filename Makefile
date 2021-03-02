@@ -20,10 +20,10 @@ test: main.o
 
 
 client: client.o
-	$(CC) -Wall -o cchat client.o
+	$(CC) -Wall -pthread -o cchat client.o
 
 server: server.o
-	$(CC) -Wall -o cserverd server.o
+	$(CC) -Wall -pthread -o cserverd server.o
 
 
 clean:
