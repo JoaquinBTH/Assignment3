@@ -16,11 +16,12 @@ static int uid = 10;
 
 void printIpAddr(struct sockaddr_in addr)
 {
-  printf("%d.%d.%d.%d",
+  printf("Client connected from %d.%d.%d.%d:%d\n",
          addr.sin_addr.s_addr & 0xff,
          (addr.sin_addr.s_addr & 0xff00) >> 8,
          (addr.sin_addr.s_addr & 0xff0000) >> 16,
-         (addr.sin_addr.s_addr & 0xff000000) >> 24);
+         (addr.sin_addr.s_addr & 0xff000000) >> 24,
+         addr.sin_port);
 }
 
 typedef struct
@@ -28,8 +29,8 @@ typedef struct
   struct sockaddr_in address;
   int clientSock;
   int uid;
-  char message[255];
   char name[12];
+  char message[255];
 } clientDetails;
 
 typedef struct
@@ -67,6 +68,7 @@ void removeClient(Array *arr, int uid)
 {
   pthread_mutex_lock(&clients_mutex);
 
+  printf("Removing client\n");
   for (int i = 0; i < arr->used; i++)
   {
     if (arr->array[i].uid == uid)
@@ -76,6 +78,7 @@ void removeClient(Array *arr, int uid)
         arr->array[j] = arr->array[j + 1];
       }
       arr->used--;
+      break;
     }
   }
 
@@ -97,24 +100,19 @@ void sendMessage(char *message, int uid)
 
   int message_len = strlen(message);
 
-  printf("Message: %s", message);
-
   for (int i = 0; i < clients.used; i++)
   {
-    if (clients.array[i].uid != uid)
+    if (write(clients.array[i].clientSock, message, message_len) == -1)
     {
-      if (write(clients.array[i].clientSock, message, message_len) == -1)
-      {
-        printf("Write failed!\n");
-        break;
-      }
+      printf("Write failed!\n");
+      break;
     }
   }
 
   pthread_mutex_unlock(&clients_mutex);
 }
 
-void *handle_client(void* arg)
+void *handle_client(void *arg)
 {
   char protocol[20];
   char okOrError[20];
@@ -125,21 +123,48 @@ void *handle_client(void* arg)
   clientDetails *currentClient = (clientDetails *)arg;
 
   //Send Protocol
+  printf("Server protocol: %s", protocol);
   if ((send(currentClient->clientSock, &protocol, sizeof(protocol), 0)) == -1)
   {
     printf("Send failed!\n");
     leave_flag = 1;
   }
 
+  char nickname[17];
   //Recieve nickname and check if it's good or not
-  if (recv(currentClient->clientSock, &currentClient->name, sizeof(currentClient->name), 0) == -1)
+  if (recv(currentClient->clientSock, &nickname, sizeof(nickname), 0) == -1)
   {
     printf("Recieve failed!\n");
   }
   else
   {
+    char testNick[12];
+    for (int i = 0; i < 4; i++)
+    {
+      testNick[i] = nickname[i];
+    }
+    if (strcmp(testNick, "NICK") == 0)
+    {
+      memset(testNick, 0, 12);
+      for (int i = 0; i < 12; i++)
+      {
+        if (nickname[i + 5] != ' ' && nickname[i + 5] != '\n')
+        {
+          testNick[i] = nickname[i + 5];
+        }
+        else
+        {
+          break;
+        }
+      }
+    }
+    else
+    {
+      leave_flag = 1;
+    }
+    strcpy(currentClient->name, testNick);
     /* This is to test nicknames */
-    char *expression = "^[A-Za-z_]+$";
+    char *expression = "^[A-Za-z0-9/_]+$";
     regex_t regularexpression;
     int reti;
 
@@ -153,20 +178,21 @@ void *handle_client(void* arg)
     int matches = 0;
     regmatch_t items;
 
-    printf("Testing nickname. \n");
     for (int i = 0; i < clients.used; i++)
     {
-      if (clients.array[i].name == currentClient->name)
+      if (strcmp(clients.array[i].name, currentClient->name) == 0)
       {
         matches++;
       }
     }
+
     if (strlen(currentClient->name) < 12 && matches == 0)
     {
       reti = regexec(&regularexpression, currentClient->name, matches, &items, 0);
       if (!reti)
       {
-        printf("Nick %s is accepted.\n", currentClient->name);
+        printf("Name is allowed\n");
+        insertClient(&clients, *currentClient);
         //Send ok to client
         memset(okOrError, 0, 20);
         strcpy(okOrError, "OK\n");
@@ -174,12 +200,11 @@ void *handle_client(void* arg)
         {
           printf("Sending OK failed!\n");
         }
-
-        insertClient(&clients, *currentClient);
       }
       else
       {
         printf("%s is not accepted.\n", currentClient->name);
+        leave_flag = 1;
         //Send no to client
         memset(okOrError, 0, 20);
         strcpy(okOrError, "ERR\n");
@@ -192,6 +217,7 @@ void *handle_client(void* arg)
     else
     {
       printf("Name %s too long or already exists.\n", currentClient->name);
+      leave_flag = 1;
       //Send no to client
       memset(okOrError, 0, 20);
       strcpy(okOrError, "ERR\n");
@@ -211,16 +237,36 @@ void *handle_client(void* arg)
     }
     memset(currentClient->message, 0, 255);
     int recieve = recv(currentClient->clientSock, &currentClient->message, sizeof(currentClient->message), 0);
+    char MSG[5];
+    memset(MSG, 0, 5);
+    strncpy(MSG, currentClient->message, 3);
+
     if (recieve == -1)
     {
       printf("Recieve failed\n");
       leave_flag = 1;
     }
-    else if((strcmp(currentClient->message, "") != 0))
+    else if ((strcmp(currentClient->message, "exit\n") == 0))
+    {
+      leave_flag = 1;
+    }
+    else if(strcmp(MSG, "MSG") != 0)
+    {
+      leave_flag = 1;
+      memset(okOrError, 0, 20);
+      strcpy(okOrError, "ERR\n");
+      if(send(currentClient->clientSock, &okOrError, sizeof(okOrError), 0) == -1)
+      {
+        printf("Send failed!\n");
+      }
+    }
+    else
     {
       char temp[255];
+      memset(temp, 0, 255);
       strcpy(temp, currentClient->message);
-      sprintf(currentClient->message, "%s: %s", currentClient->name, temp);
+      memcpy(temp, &temp[4], sizeof(temp));
+      sprintf(currentClient->message, "MSG %s %s", currentClient->name, temp);
       sendMessage(currentClient->message, currentClient->uid);
     }
   }
@@ -232,7 +278,6 @@ void *handle_client(void* arg)
   return NULL;
 }
 
-#define DEBUG
 int main(int argc, char *argv[])
 {
 
@@ -259,9 +304,6 @@ int main(int argc, char *argv[])
 
   /* Do magic */
   int port = atoi(Destport);
-#ifdef DEBUG
-  printf("Host %s, and port %d.\n", Desthost, port);
-#endif
 
   int backLogSize = 10;
   int yes = 1;
@@ -287,7 +329,13 @@ int main(int argc, char *argv[])
       printf("Socket creation failed.\n");
       continue;
     }
-    printf("Socket Created.\n");
+
+    if (setsockopt(serverSock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
+    {
+      perror("setsockopt failed!\n");
+      exit(1);
+    }
+
     rv = bind(serverSock, p->ai_addr, p->ai_addrlen);
     if (rv == -1)
     {
@@ -306,13 +354,7 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  if (setsockopt(serverSock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-  {
-    perror("setsockopt failed!\n");
-    exit(1);
-  }
-
-  printf("Lyssnar på %s:%d \n", Desthost, port);
+  printf("[x]Listening on %s:%d \n", Desthost, port);
 
   rv = listen(serverSock, backLogSize);
   if (rv == -1)
@@ -339,15 +381,15 @@ int main(int argc, char *argv[])
     printIpAddr(clientAddr);
 
     clientDetails *currentClient = (clientDetails *)malloc(sizeof(clientDetails));
+    memset(currentClient, 0, sizeof(clientDetails));
     currentClient->address = clientAddr;
     currentClient->clientSock = clientSock;
     currentClient->uid = uid++;
 
     pthread_create(&tid, NULL, &handle_client, (void *)currentClient);
-    //Reduce CPU usage
-    sleep(1);
   }
 
+  close(serverSock);
   freeArray(&clients);
   return 0;
 }

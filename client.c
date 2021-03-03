@@ -12,8 +12,13 @@
 #include <regex.h>
 #include <pthread.h>
 #include <signal.h>
+#include <curses.h>
 
 #define DEBUG
+
+char name[12];
+char NICKname[17];
+char messageName[17];
 
 volatile sig_atomic_t flag = 0;
 
@@ -28,14 +33,13 @@ void str_overwrite_stdout()
   fflush(stdout);
 }
 
-void recv_msg_handler(void* arg)
+void recv_msg_handler(void *arg)
 {
   char message[255];
-  memset(message, 0, 255);
 
   int *socket = (int *)arg;
 
-  while(1)
+  while (1)
   {
     memset(message, 0, 255);
     int recieve = recv(*socket, message, sizeof(message), 0);
@@ -46,26 +50,58 @@ void recv_msg_handler(void* arg)
     }
     else
     {
-      printf("%s", message);
-      str_overwrite_stdout();
+      bool same = true;
+      for (int i = 0; i < strlen(messageName); i++)
+      {
+        if (messageName[i] != message[i])
+        {
+          same = false;
+        }
+      }
+      if (same == false)
+      {
+        char messageWithoutName[255];
+        memset(messageWithoutName, 0, 255);
+        int spacesFound = 0;
+        printf("strlen of message: %d\n", (int)strlen(message));
+        for(int i = 0; i < ((int)strlen(message)); i++)
+        {
+          if(message[i] == ' ')
+          {
+            spacesFound++;
+          }
+
+          if(spacesFound > 1)
+          {
+            messageWithoutName[(int)strlen(messageWithoutName)] = message[i];
+          }
+        }
+        memcpy(messageWithoutName, &messageWithoutName[1], sizeof(messageWithoutName));
+        printf("%s", messageWithoutName);
+        str_overwrite_stdout();
+      }
     }
   }
 }
 
-void send_msg_handler(void* arg)
+void send_msg_handler(void *arg)
 {
-  char message[255];
+  char message[1000];
 
   int *socket = (int *)arg;
 
-  while(1)
+  while (1)
   {
-    memset(message, 0, 255);
-    fgets(message, 255, stdin);
-    if (strcmp(message, "") != 0)
+    char tempMessage[255];
+    memset(tempMessage, 0, 255);
+    memset(message, 0, 1000);
+    fgets(tempMessage, 255, stdin);
+    flushinp();
+    sprintf(message, "MSG %s: %s", name, tempMessage);
+    if (strcmp(message, "\n") != 0 && strlen(message) <= 238)
     {
-      int response = send(*socket, &message, sizeof(message), 0);
-      if(response == -1)
+      int response = send(*socket, &message, 255, 0);
+      if (response == -1)
       {
         printf("Send failed!\n");
         break;
@@ -93,13 +129,43 @@ int main(int argc, char *argv[])
   rest = argv[1];
   hoststring = strtok_r(rest, ":", &rest);
   portstring = strtok_r(rest, ":", &rest);
-  printf("Got %s split into %s and %s \n", org, hoststring, portstring);
   free(org);
+
+  /* This is to test nicknames */
+  char *expression = "^[A-Za-z0-9/_]+$";
+  regex_t regularexpression;
+  int reti;
+
+  reti = regcomp(&regularexpression, expression, REG_EXTENDED);
+  if (reti)
+  {
+    fprintf(stderr, "Could not compile regex.\n");
+    exit(1);
+  }
+
+  int matches = 0;
+  regmatch_t items;
+
+  if (strlen(argv[2]) < 12)
+  {
+    reti = regexec(&regularexpression, argv[2], matches, &items, 0);
+    if (reti)
+    {
+      printf("Bad name\n");
+      exit(1);
+    }
+  }
+  else
+  {
+    printf("Name %s too long.\n", argv[2]);
+    exit(1);
+  }
+  regfree(&regularexpression);
 
   /* Do magic */
   int port = atoi(portstring);
 #ifdef DEBUG
-  printf("Host %s, and port %d.\n", hoststring, port);
+  printf("Connected to %s:%d\n", hoststring, port);
 #endif
 
   struct addrinfo hint, *servinfo, *p;
@@ -122,7 +188,6 @@ int main(int argc, char *argv[])
       printf("Socket creation failed.\n");
       continue;
     }
-    printf("Socket Created.\n");
     int con = connect(clientSock, p->ai_addr, p->ai_addrlen);
     if (con == -1)
     {
@@ -151,9 +216,11 @@ int main(int argc, char *argv[])
     printf("Recieve failed!\n");
   }
 
+  printf("Server protocol: %s", buf);
+
   if (strcmp(buf, "Hello 1\n") == 0)
   {
-    printf("Protocol accepted!\n");
+    printf("Protocol supported, sending nickname\n");
   }
   else
   {
@@ -161,7 +228,11 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  response = send(clientSock, argv[2], sizeof(argv[2]), 0);
+  sprintf(NICKname, "NICK %s", argv[2]);
+  sprintf(messageName, "MSG %s", argv[2]);
+  strcpy(name, argv[2]);
+
+  response = send(clientSock, &NICKname, strlen(NICKname), 0);
   if (response == -1)
   {
     printf("Response failed!\n");
@@ -178,7 +249,7 @@ int main(int argc, char *argv[])
 
   if (strcmp(buf, "OK\n") == 0)
   {
-    printf("OK was recieved\n");
+    printf("Name accepted!\n");
   }
   else if (strcmp(buf, "ERR\n") == 0)
   {
@@ -192,23 +263,29 @@ int main(int argc, char *argv[])
   }
 
   pthread_t send_msg_thread;
-  if (pthread_create(&send_msg_thread, NULL, (void*)send_msg_handler, (void *)&clientSock) != 0)
+  if (pthread_create(&send_msg_thread, NULL, (void *)send_msg_handler, (void *)&clientSock) != 0)
   {
     printf("Error!\n");
     exit(1);
   }
 
   pthread_t recv_msg_thread;
-  if (pthread_create(&recv_msg_thread, NULL, (void*)recv_msg_handler, (void *)&clientSock) != 0)
+  if (pthread_create(&recv_msg_thread, NULL, (void *)recv_msg_handler, (void *)&clientSock) != 0)
   {
     printf("Error!\n");
     exit(1);
   }
 
-  while(1)
+  while (1)
   {
-    if(flag)
+    if (flag)
     {
+      memset(buf, 0, 255);
+      strcpy(buf, "exit\n");
+      if (send(clientSock, &buf, sizeof(buf), 0) == -1)
+      {
+        printf("Last send with exit failed!\n");
+      }
       printf("\nBye\n");
       break;
     }

@@ -16,11 +16,11 @@ server.o: server.c
 	$(CC) -Wall -I. -c server.c
 
 test: main.o
-	$(CC) -I./ -Wall -lncurses  -o test main.o 
+	$(CC) -I./ -Wall -lncurses -o test main.o 
 
 
 client: client.o
-	$(CC) -Wall -pthread -o cchat client.o
+	$(CC) -Wall -pthread -o cchat client.o -lncurses
 
 server: server.o
 	$(CC) -Wall -pthread -o cserverd server.o
