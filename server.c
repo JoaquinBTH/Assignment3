@@ -124,13 +124,14 @@ void *handle_client(void *arg)
 
   //Send Protocol
   printf("Server protocol: %s", protocol);
-  if ((send(currentClient->clientSock, &protocol, sizeof(protocol), 0)) == -1)
+  if ((send(currentClient->clientSock, &protocol, strlen(protocol), 0)) == -1)
   {
     printf("Send failed!\n");
     leave_flag = 1;
   }
 
-  char nickname[17];
+  char nickname[50];
+  memset(nickname, 0, 50);
   //Recieve nickname and check if it's good or not
   if (recv(currentClient->clientSock, &nickname, sizeof(nickname), 0) == -1)
   {
@@ -139,11 +140,12 @@ void *handle_client(void *arg)
   else
   {
     char testNick[12];
-    for (int i = 0; i < 4; i++)
+    memset(testNick, 0, 12);
+    for (int i = 0; i < 5; i++)
     {
       testNick[i] = nickname[i];
     }
-    if (strcmp(testNick, "NICK") == 0)
+    if (strcmp(testNick, "NICK ") == 0)
     {
       memset(testNick, 0, 12);
       for (int i = 0; i < 12; i++)
@@ -189,14 +191,14 @@ void *handle_client(void *arg)
     if (strlen(currentClient->name) < 12 && matches == 0)
     {
       reti = regexec(&regularexpression, currentClient->name, matches, &items, 0);
-      if (!reti)
+      if (!reti && leave_flag == 0)
       {
         printf("Name is allowed\n");
         insertClient(&clients, *currentClient);
         //Send ok to client
         memset(okOrError, 0, 20);
         strcpy(okOrError, "OK\n");
-        if (send(currentClient->clientSock, &okOrError, sizeof(okOrError), 0) == -1)
+        if (send(currentClient->clientSock, okOrError, strlen(okOrError), 0) == -1)
         {
           printf("Sending OK failed!\n");
         }
@@ -208,7 +210,7 @@ void *handle_client(void *arg)
         //Send no to client
         memset(okOrError, 0, 20);
         strcpy(okOrError, "ERR\n");
-        if (send(currentClient->clientSock, &okOrError, sizeof(okOrError), 0) == -1)
+        if (send(currentClient->clientSock, okOrError, strlen(okOrError), 0) == -1)
         {
           printf("Sending ERR failed!\n");
         }
@@ -221,7 +223,7 @@ void *handle_client(void *arg)
       //Send no to client
       memset(okOrError, 0, 20);
       strcpy(okOrError, "ERR\n");
-      if (send(currentClient->clientSock, &okOrError, sizeof(okOrError), 0) == -1)
+      if (send(currentClient->clientSock, okOrError, strlen(okOrError), 0) == -1)
       {
         printf("Sending ERR failed!\n");
       }
@@ -255,7 +257,7 @@ void *handle_client(void *arg)
       leave_flag = 1;
       memset(okOrError, 0, 20);
       strcpy(okOrError, "ERR\n");
-      if(send(currentClient->clientSock, &okOrError, sizeof(okOrError), 0) == -1)
+      if(send(currentClient->clientSock, &okOrError, strlen(okOrError), 0) == -1)
       {
         printf("Send failed!\n");
       }

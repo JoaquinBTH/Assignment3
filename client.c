@@ -60,24 +60,27 @@ void recv_msg_handler(void *arg)
       }
       if (same == false)
       {
-        char messageWithoutName[255];
-        memset(messageWithoutName, 0, 255);
+        char messageWithoutMSG[255];
+        memset(messageWithoutMSG, 0, 255);
         int spacesFound = 0;
-        printf("strlen of message: %d\n", (int)strlen(message));
         for(int i = 0; i < ((int)strlen(message)); i++)
         {
           if(message[i] == ' ')
           {
             spacesFound++;
+            if(spacesFound == 2)
+            {
+              messageWithoutMSG[(int)strlen(messageWithoutMSG)] = ':';
+            }
           }
 
-          if(spacesFound > 1)
+          if(spacesFound > 0)
           {
-            messageWithoutName[(int)strlen(messageWithoutName)] = message[i];
+            messageWithoutMSG[(int)strlen(messageWithoutMSG)] = message[i];
           }
         }
-        memcpy(messageWithoutName, &messageWithoutName[1], sizeof(messageWithoutName));
-        printf("%s", messageWithoutName);
+        memcpy(messageWithoutMSG, &messageWithoutMSG[1], sizeof(messageWithoutMSG));
+        printf("%s", messageWithoutMSG);
         str_overwrite_stdout();
       }
     }
@@ -97,10 +100,10 @@ void send_msg_handler(void *arg)
     memset(message, 0, 1000);
     fgets(tempMessage, 255, stdin);
     flushinp();
-    sprintf(message, "MSG %s: %s", name, tempMessage);
+    sprintf(message, "MSG %s", tempMessage);
     if (strcmp(message, "\n") != 0 && strlen(message) <= 238)
     {
-      int response = send(*socket, &message, 255, 0);
+      int response = send(*socket, &message, strlen(message), 0);
       if (response == -1)
       {
         printf("Send failed!\n");
@@ -282,7 +285,7 @@ int main(int argc, char *argv[])
     {
       memset(buf, 0, 255);
       strcpy(buf, "exit\n");
-      if (send(clientSock, &buf, sizeof(buf), 0) == -1)
+      if (send(clientSock, &buf, strlen(buf), 0) == -1)
       {
         printf("Last send with exit failed!\n");
       }
